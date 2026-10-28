@@ -55,6 +55,11 @@ test("rtk's compact commit output is read as a commit", () => {
   assert.deepEqual(ev.commits, [{ sha: 'a992823', subject: 'add notes' }]);
 });
 
+test('a log line printed before the commit is not a commit', () => {
+  assert.deepEqual(gitEvents('git log --oneline -1 && git commit -m "feat: x"', '62f277a README: why\n').commits, []);
+  assert.deepEqual(gitEvents('git commit -q && git log --oneline -1', '62f277a README: why\n').commits, [{ sha: '62f277a', subject: 'README: why' }]);
+});
+
 test('a resumed session records its next instruction again', () => {
   const s = sandbox();
   const fire = (ev, extra = {}) => handleHook({ session_id: 'r1', cwd: s.repo, hook_event_name: ev, ...extra }, s.env);
