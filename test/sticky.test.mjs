@@ -23,7 +23,7 @@ function sandbox() {
   return { root, env, repo, fire, edit, on };
 }
 
-test('a bound session stays on its line after it ends and is resumed, and logs no second first prompt', () => {
+test('a bound session stays on its line after it ends and is resumed, and records the next instruction again', () => {
   const s = sandbox();
   const promo = mutate(d => createThread(d, { name: 'promo' }).id, s.env);
   s.fire('s1', 'UserPromptSubmit', { prompt: 'Tidy the promo video' });
@@ -34,7 +34,7 @@ test('a bound session stays on its line after it ends and is resumed, and logs n
   s.fire('s1', 'UserPromptSubmit', { prompt: 'Now the second video' });
   s.edit('s1');
   assert.deepEqual(s.on('tripsplit'), ['task']);
-  assert.deepEqual(s.on('promo'), ['agent', 'note', 'agent']);
+  assert.deepEqual(s.on('promo'), ['agent', 'note', 'task', 'agent']); // the resumed sitting's instruction is a record too
   const e = readData(s.env).sessions.s1;
   assert.deepEqual([e.thread, e.bound, e.prompted, e.title, e.resume, e.cwd], [promo, true, true, 'Tidy the promo video', 'claude --resume s1', s.repo]);
 });

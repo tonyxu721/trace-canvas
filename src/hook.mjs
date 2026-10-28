@@ -138,6 +138,9 @@ export function handleHook(input, env = process.env) {
   const bashCmd = ev === 'PostToolUse' && input.tool_name === 'Bash' ? String((input.tool_input || {}).command || '') : '';
   const commitRepo = GIT_COMMIT.test(bashCmd) ? gitRoot(commandDir(bashCmd, cwd)) : null;
   try { updateLive(input, { info, key: info ? threadKey(info, cfg, sid) : null, env, agent: ag.name, agentKey: input._agent || 'claude', resume: ag.resume(sid), machine: cfg.machine, terminal }); } catch {}
+  // A resumed session is a new sitting: its next instruction gets a record again. New sessions have
+  // no entry yet, and a compaction continues the same sitting, so both are left alone.
+  if (ev === 'SessionStart' && input.source !== 'compact') reopenSession(sid, env);
   if (!LOG_EVENTS.includes(ev)) return { live: ev };
 
   return mutate(d => {
@@ -147,7 +150,7 @@ export function handleHook(input, env = process.env) {
     if (key) { state.seen.push(key); if (state.seen.length > 300) state.seen = state.seen.slice(-200); }
     let changed = false;
     // The session's entry outlives this process: the desktop app ends sessions and resumes them
-    // under the same id, and a resumed session stays on its line and does not log a first prompt again.
+    // under the same id, and the resume's SessionStart lets the next instruction in (reopenSession).
     const s = d.sessions[sid] || adoptSession(d, sid, state);
     const touch = () => { d.sessions[sid] = Object.assign(s, { id: sid, agent: ag.name, agentKey: input._agent || 'claude', resume: ag.resume(sid), cwd, machine: cfg.machine, last: Date.now() }); changed = true; };
     const thread = prompt => {
@@ -214,6 +217,20 @@ export function handleHook(input, env = process.env) {
     saveState(sid, state, env);
     return changed ? undefined : false;
   }, env);
+}
+
+// A session that starts again with records already behind it was resumed: the next instruction is
+// the start of a new sitting and is recorded even when prompts are set to "first". It takes the
+// lock itself, so call it outside mutate().
+function reopenSession(sid, env) {
+  try {
+    mutate(d => {
+      const s = d.sessions[sid];
+      if (!s || !s.prompted) return false;
+      s.prompted = false;
+      return undefined;
+    }, env);
+  } catch {}
 }
 
 // Sessions from before the session table: the old state file's binding, else the line of the

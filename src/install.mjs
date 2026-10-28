@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const MARK = 'trace-canvas.mjs" hook';
 
@@ -178,4 +179,62 @@ export function uninstall(file) {
   }
   fs.writeFileSync(file, JSON.stringify(settings, null, 2) + '\n');
   return true;
+}
+
+export const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+// omp and OpenCode read neither Claude's settings nor Codex's hooks.json. Each gets a small adapter
+// that sends Claude-shaped events to `trace-canvas hook`, plus the skill and the MCP server.
+export const integrationsFile = home => path.join(home, '.trace-canvas', 'integrations.json');
+
+// Where the adapters find the CLI: the node that runs it and the script. Env vars can override both.
+export function writeIntegrations(cli, home = os.homedir()) {
+  const file = integrationsFile(home);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ node: NODE, cli }, null, 2) + '\n');
+  return file;
+}
+
+// Linked rather than copied, so pulling a newer Trace Canvas updates the hook or plugin too.
+export function linkTo(source, dest) {
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  try {
+    const st = fs.lstatSync(dest);
+    if (st.isSymbolicLink()) fs.unlinkSync(dest);
+    else fs.renameSync(dest, `${dest}.bak-${Date.now()}`);
+  } catch {}
+  try { fs.symlinkSync(source, dest); }
+  catch { fs.cpSync(source, dest, { recursive: true }); }
+  return dest;
+}
+
+// omp: hook in ~/.omp/agent/hooks/pre, skill in ~/.omp/agent/skills, MCP in ~/.omp/agent/mcp.json.
+export function installOmp(cli, home = os.homedir(), repo = REPO) {
+  const hook = linkTo(path.join(repo, 'integrations', 'omp', 'trace-canvas.ts'), path.join(home, '.omp', 'agent', 'hooks', 'pre', 'trace-canvas.ts'));
+  const skill = linkTo(path.join(repo, 'skill'), path.join(home, '.omp', 'agent', 'skills', 'trace-canvas'));
+  const file = path.join(home, '.omp', 'agent', 'mcp.json');
+  let cfg = {};
+  if (fs.existsSync(file)) {
+    const raw = fs.readFileSync(file, 'utf8');
+    cfg = raw.trim() ? JSON.parse(raw) : {};
+    fs.writeFileSync(file + '.bak', raw);
+  }
+  cfg.mcpServers = { ...(cfg.mcpServers || {}), 'trace-canvas': { type: 'stdio', command: NODE, args: [cli, 'mcp'], env: { TRACE_CANVAS_AGENT: 'omp' } } };
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + '\n');
+  return { hook, skill, mcp: file };
+}
+
+// OpenCode 2: plugin in ~/.config/opencode/plugins, skill in ~/.config/opencode/skills, MCP through
+// `opencode mcp add --global` (it writes its own config, JSONC included).
+export function installOpencode(cli, home = os.homedir(), repo = REPO) {
+  const plugin = linkTo(path.join(repo, 'integrations', 'opencode', 'trace-canvas.ts'), path.join(home, '.config', 'opencode', 'plugins', 'trace-canvas.ts'));
+  const skill = linkTo(path.join(repo, 'skill'), path.join(home, '.config', 'opencode', 'skills', 'trace-canvas'));
+  try { execFileSync('opencode', ['mcp', 'remove', 'trace-canvas'], { stdio: 'ignore' }); } catch {}
+  try {
+    execFileSync('opencode', ['mcp', 'add', 'trace-canvas', '--global', '--env', 'TRACE_CANVAS_AGENT=opencode', '--', NODE, cli, 'mcp'], { stdio: 'pipe' });
+    return { plugin, skill, mcp: 'registered (opencode mcp add --global)' };
+  } catch {
+    return { plugin, skill, mcp: `not registered, run: opencode mcp add trace-canvas --global --env TRACE_CANVAS_AGENT=opencode -- "${NODE}" "${cli}" mcp` };
+  }
 }

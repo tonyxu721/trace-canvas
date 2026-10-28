@@ -184,24 +184,26 @@ agent 用的是同一份清单：开工时用 `trace_tasks` 读目标和待办�
 
 *agent 在共用的清单上勾掉待办：一项由 Claude Code 勾选，一项由 Codex 勾选，这条线的进度条随之前进。虚构数据。*
 
-## 一台机器上多个 agent 分工：Claude Code、Codex、Gemini CLI
+## 一台机器上多个 agent 分工：Claude Code、Codex、Gemini CLI、omp、OpenCode
 
-Claude Code、Codex 和 Gemini CLI 可以共用同一张画布，通过待办分工：
+Claude Code、Codex、Gemini CLI、omp 和 OpenCode 可以共用同一张画布，通过待办分工：
 
 ```bash
-node bin/trace-canvas.mjs setup --user --agents codex,gemini
+node bin/trace-canvas.mjs setup --user --agents codex,gemini,omp,opencode
 ```
 
 这条命令会把 hooks 加进 `~/.codex/hooks.json` 和 `~/.gemini/settings.json`（排在已有 hooks 之后，并先做备份），再在两个 CLI 里注册 MCP 服务。Codex 会在它的 `workspace-write` 沙盒里运行 hooks，沙盒不允许写项目以外的地方，所以这条命令还会把 `~/.trace-canvas` 加进 `~/.codex/config.toml` 里 `[sandbox_workspace_write]` 的 `writable_roots`（同样先做备份）。之后启动一次 Codex，它问到时信任新的 hooks。没安装的 CLI 会自动跳过。
+
+omp 和 OpenCode 没有自己的 hook 格式，所以 setup 会链接 `integrations/` 里的一个小适配器（`~/.omp/agent/hooks/pre/trace-canvas.ts`、`~/.config/opencode/plugins/trace-canvas.ts`），链接 skill，并注册 MCP 服务（`~/.omp/agent/mcp.json`、`opencode mcp add --global`）。适配器在后台把每条指令、每次工具调用、每个结束的回合和会话的开始/结束，转成 Claude Code hooks 发的那套事件；CLI 的路径写在 `~/.trace-canvas/integrations.json`。
 
 对于 Codex，setup 还会把 skill 链接到 `~/.agents/skills/trace-canvas`。用 `$trace-canvas` 调用，例如 `$trace-canvas tasks`。已有安装只补 skill 时，运行 `node bin/trace-canvas.mjs install-skill --user --agents codex`；换成 `--project <目录>` 就装到该目录的 `.agents/skills/trace-canvas`。skill 链接到这份仓库，后续拉取更新也会同步生效。
 
 - **谁做什么**：**目标**清单里每项待办都能选"由谁做"（Claude Code、Codex、Gemini CLI 或任何人）。agent 用 `trace_tasks`（`mine: true`）读分给自己的待办，做完用 `trace_task_done` 勾上，清单会标出是谁勾的。
 - **交出去**：已指定的待办旁边有**交给它**按钮，会复制一条命令；`trace-canvas hand "<待办>" --to codex` 也能打印同样的命令。这条命令在这条线的目录里启动那个 agent，并设置 `TRACE_CANVAS_THREAD`，新会话一开始就落在这条线上。在 macOS 上，旁边的**在终端打开**会直接在新的终端窗口里运行这条命令。agent 也可以自己领下一条待办：`/trace-canvas pick`（Codex 里是 `$trace-canvas pick`）。
-- **开局就知道情况**：三个 agent 无论哪个开新会话，hook 都会告诉它：在哪条线上、线的目标、分给它的待办、还有谁在这条线上，以及（配好位置地图时）本机上的东西在哪里。
-- 记录、实时线头和 Agent 视图都会标出是哪个 agent 做的。每个会话都有自己的恢复命令：`claude --resume`、`codex resume` 或 `gemini --resume`。
+- **开局就知道情况**：Claude Code、Codex、Gemini CLI 开新会话时，hook 都会告诉它：在哪条线上、线的目标、分给它的待办、还有谁在这条线上，以及（配好位置地图时）本机上的东西在哪里。omp 和 OpenCode 从 `trace_tasks` 拿同一份清单，它们的 skill 会让它们去读。
+- 记录、实时线头和 Agent 视图都会标出是哪个 agent 做的。每个会话都有自己的恢复命令：`claude --resume`、`codex resume`、`gemini --resume`、`omp --resume` 或 `opencode --session`。
 
-Codex 没有通知事件，所以用权限请求来表示"等你"。这些已经用真实的 Codex 0.164 会话核对过（`test/fixtures/codex/`）：指令、shell 命令、`apply_patch` 改文件、提交、权限请求、会话开始时的上下文，以及通过 MCP 勾掉待办。Gemini CLI 的支持按它文档里的 hook 事件实现，还要用最新的 `@google/gemini-cli` 实际核对。
+Codex 没有通知事件，所以用权限请求来表示"等你"。这些已经用真实的 Codex 0.164 会话核对过（`test/fixtures/codex/`）：指令、shell 命令、`apply_patch` 改文件、提交、权限请求、会话开始时的上下文，以及通过 MCP 勾掉待办。Gemini CLI 的支持按它文档里的 hook 事件实现，还要用最新的 `@google/gemini-cli` 实际核对。omp 和 OpenCode 没有权限事件和子 agent 事件，所以它们的会话只有"工作中"和"空闲"，不会出现"等你"；两者都用真实会话核对过：指令、改文件、shell 命令和提交、结束的回合、会话的开始和结束。
 
 ## 多台电脑，同一张画布
 
@@ -262,7 +264,7 @@ node bin/trace-canvas.mjs sync
 | --- | --- | --- | --- |
 | `lang` | `TRACE_CANVAS_LANG` | `en`、`zh`：hooks 写入的记录用什么语言 | `en`（在页面上切换语言会一起切换） |
 | `group` | `TRACE_CANVAS_GROUP` | `branch`、`repo`、`session`：一条线程代表什么 | `branch` |
-| `prompts` | `TRACE_CANVAS_PROMPTS` | `first`、`long`（60 字符以上）、`all`、`none` | `first` |
+| `prompts` | `TRACE_CANVAS_PROMPTS` | `first`（每次坐下来开工的第一条指令；恢复会话算新的一次）、`long`（60 字符以上）、`all`、`none` | `first` |
 | `turns` | `TRACE_CANVAS_TURNS` | `changes`（有改动的回合）、`all`、`none` | `changes` |
 
 `TRACE_CANVAS_DISABLE=1` 可以让某个会话不留痕，`TRACE_CANVAS_HOME` 可以换数据目录，`TRACE_CANVAS_DEBUG=1` 会把每个 hook 事件写进 `~/.trace-canvas/debug.log`。
