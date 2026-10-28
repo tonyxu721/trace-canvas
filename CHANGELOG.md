@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- **Branches filters by line.** Clicking a line's chip in the Branches view now shows only that line's records, one lane and its live tip, instead of opening the line panel; click the chip again for every line. The chip keeps its count and shows a pressed state while the filter is on.
 
 - **omp and OpenCode on the canvas.** `setup --user --agents omp,opencode` links a small adapter into omp's hooks and OpenCode's plugins, links the skill and registers the MCP server. Prompts, file edits, shell commands and commits, settled turns and session start/end land on the line as they happen, with each session's own resume command (`omp --resume`, `opencode --session`). Neither CLI has a permission or subagent event, so their live tips show working and idle only. Commits made through `rtk git commit` are recognised from its `ok <sha>` output.
 - **Setup survives a hand-edited `mcp.json`.** If `~/.omp/agent/mcp.json` is not plain JSON (comments, a trailing comma), setup links the hook and skill, skips the MCP entry with a message and still installs the other agents, instead of stopping halfway. A `git log --oneline -1` printed before the commit in the same shell command is no longer recorded as that commit.
