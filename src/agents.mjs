@@ -10,6 +10,10 @@ export const AGENTS = {
   codex: { name: 'Codex', resume: id => `codex resume ${id}`, launch: p => `codex ${q(p)}` },
   // ponytail: Gemini's resume flag is unverified until a current gemini-cli is installed.
   gemini: { name: 'Gemini CLI', resume: id => `gemini --resume ${id}`, launch: p => `gemini -i ${q(p)}` },
+  // omp and OpenCode have no hook format of their own; their integrations/ adapters send Claude's
+  // shape, so normalize() leaves their payloads alone. Resume takes the id the adapter recorded.
+  omp: { name: 'omp', resume: id => `omp --resume ${id}`, launch: p => `omp ${q(p)}` },
+  opencode: { name: 'OpenCode', resume: id => `opencode --session ${id}`, launch: p => `opencode ${q(p)}` },
 };
 export const agentOf = key => AGENTS[key] || AGENTS.claude;
 // AppleScript that runs cmd in a new Terminal window and brings it forward (macOS, "Open in Terminal").
@@ -40,7 +44,7 @@ export function normalize(key, input) {
   if (!input || typeof input !== 'object') return input;
   const k = AGENTS[key] ? key : 'claude';
   const out = { ...input, _agent: k };
-  if (k === 'claude') return out;
+  if (k === 'claude' || k === 'omp' || k === 'opencode') return out;
   let ev = input.hook_event_name;
   if (k === 'gemini') {
     ev = GEMINI_EVENTS[ev] || ev;

@@ -4,10 +4,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { focusScript, normalize, terminalScript } from '../src/agents.mjs';
+import { agentOf, focusScript, normalize, terminalScript } from '../src/agents.mjs';
 import { handleHook, sessionStartContext, sessionThread } from '../src/hook.mjs';
 import { readLive, updateLive } from '../src/live.mjs';
 import { codexHooks, codexWritable, install } from '../src/install.mjs';
+import { gitEvents } from '../src/git-events.mjs';
 import { handTo, listTasks } from '../src/ops.mjs';
 import { addCommit, createThread, emptyData, mutate, readData } from '../src/store.mjs';
 
@@ -37,6 +38,39 @@ test('Codex and Gemini payloads become the shape the hook reads', () => {
   assert.deepEqual([write.tool_name, write.tool_input.file_path], ['Edit', '/x/notes.md']);
   assert.equal(normalize('gemini', { hook_event_name: 'Notification', notification_type: 'ToolPermission' }).notification_type, 'permission_prompt');
   assert.equal(normalize('claude', { hook_event_name: 'Stop' })._agent, 'claude');
+});
+
+test('omp and OpenCode payloads keep the shape their adapters send', () => {
+  // Their adapters (integrations/) already send Claude's shape; normalize must not rename their tools.
+  const write = normalize('omp', { hook_event_name: 'PostToolUse', tool_name: 'Write', tool_input: { file_path: 'notes.md', path: 'notes.md' } });
+  assert.deepEqual([write._agent, write.tool_name, write.tool_input.file_path], ['omp', 'Write', 'notes.md']);
+  const shell = normalize('opencode', { hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'git commit -m "x"' }, tool_response: { stdout: 'ok 1a2b3c4' } });
+  assert.deepEqual([shell._agent, shell.tool_name, shell.tool_response.stdout], ['opencode', 'Bash', 'ok 1a2b3c4']);
+  assert.equal(agentOf('omp').resume('01a180e5'), 'omp --resume 01a180e5');
+  assert.equal(agentOf('opencode').resume('ses_abc'), 'opencode --session ses_abc');
+});
+
+test("rtk's compact commit output is read as a commit", () => {
+  const ev = gitEvents("rtk git add notes.md && rtk git commit -m 'add notes'", 'ok 1 file changed, 1 insertion(+)\nok a992823\n');
+  assert.deepEqual(ev.commits, [{ sha: 'a992823', subject: 'add notes' }]);
+});
+
+test('a resumed session records its next instruction again', () => {
+  const s = sandbox();
+  const fire = (ev, extra = {}) => handleHook({ session_id: 'r1', cwd: s.repo, hook_event_name: ev, ...extra }, s.env);
+  const tasks = () => Object.values(readData(s.env).commits).filter(c => c.session === 'r1' && c.kind === 'task').map(c => c.title);
+  fire('SessionStart', { source: 'startup' });
+  fire('UserPromptSubmit', { prompt: 'First instruction', prompt_id: 'p1' });
+  fire('Stop', { last_assistant_message: 'done' });
+  fire('SessionEnd', { reason: 'exit' });
+  assert.deepEqual(tasks(), ['First instruction']);
+  fire('SessionStart', { source: 'resume' });
+  fire('UserPromptSubmit', { prompt: 'Second instruction', prompt_id: 'p2' });
+  assert.deepEqual(tasks(), ['First instruction', 'Second instruction']);
+  // A compaction continues the same sitting, so the instruction after it is not a new record.
+  fire('SessionStart', { source: 'compact' });
+  fire('UserPromptSubmit', { prompt: 'Third instruction', prompt_id: 'p3' });
+  assert.deepEqual(tasks(), ['First instruction', 'Second instruction']);
 });
 
 test('a Codex session is recorded as Codex, with its own resume command and a "needs you" state', () => {

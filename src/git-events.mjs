@@ -32,10 +32,10 @@ export function gitEvents(cmd, stdout = '', stderr = '', gitOperation = null) {
     // Newer Claude Code versions also report the commit as structured data, which survives `| tail` and quiet flags.
     const op = gitOperation && gitOperation.commit;
     if (!ev.commits.length && op && op.sha && (!op.kind || op.kind === 'committed')) ev.commits.push({ sha: String(op.sha), subject: commitMessage(cmd) || String(op.branch || '') });
-    // `git commit -q && git log --oneline -1` style output.
+    // `git commit -q && git log --oneline -1` style output, and rtk's one-liner (`ok <sha>`).
     if (!ev.commits.length) {
-      const m = String(stdout || '').match(/^([0-9a-f]{7,40}) (.+)$/m);
-      if (m) ev.commits.push({ sha: m[1], subject: m[2] });
+      const m = String(stdout || '').match(/^([0-9a-f]{7,40}) (.+)$/m) || String(stdout || '').match(/^ok ([0-9a-f]{7,40})$/m);
+      if (m) ev.commits.push({ sha: m[1], subject: m[2] || commitMessage(cmd) || '' });
     }
   }
   if (/\bgit\b[^\n;&|]*\bpush\b/.test(cmd) && !/Everything up-to-date/.test(out)) {
