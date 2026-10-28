@@ -110,3 +110,33 @@ test('setup --machine and --map are saved as given', t => {
   const cfg = JSON.parse(fs.readFileSync(path.join(root, 'data', 'config.json'), 'utf8'));
   assert.deepEqual([cfg.machine, cfg.map], ['lab', map]);
 });
+
+test('setup --user --agents omp,opencode links both adapters, the skill and the MCP server', t => {
+  const { root, userDir, run } = sandbox(t);
+  for (const name of ['omp', 'opencode']) fs.writeFileSync(path.join(root, 'bin', name), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const out = run('setup', '--user', '--agents', 'omp,opencode');
+  const repo = fileURLToPath(new URL('..', import.meta.url));
+  const linked = (dest, src) => assert.equal(fs.realpathSync(dest), fs.realpathSync(src));
+  linked(path.join(userDir, '.omp', 'agent', 'hooks', 'pre', 'trace-canvas.ts'), path.join(repo, 'integrations', 'omp', 'trace-canvas.ts'));
+  linked(path.join(userDir, '.omp', 'agent', 'skills', 'trace-canvas'), path.join(repo, 'skill'));
+  linked(path.join(userDir, '.config', 'opencode', 'plugins', 'trace-canvas.ts'), path.join(repo, 'integrations', 'opencode', 'trace-canvas.ts'));
+  const mcp = JSON.parse(fs.readFileSync(path.join(userDir, '.omp', 'agent', 'mcp.json'), 'utf8')).mcpServers['trace-canvas'];
+  assert.deepEqual([mcp.command, mcp.args, mcp.env.TRACE_CANVAS_AGENT], [process.execPath, [fileURLToPath(cli), 'mcp'], 'omp']);
+  const integrations = JSON.parse(fs.readFileSync(path.join(userDir, '.trace-canvas', 'integrations.json'), 'utf8'));
+  assert.deepEqual([integrations.node, integrations.cli], [process.execPath, fileURLToPath(cli)]);
+  assert.match(out, /omp: hook .*MCP .*mcp\.json/);
+  assert.match(out, /opencode: plugin .*MCP registered/);
+});
+
+test('a commented mcp.json is left alone: the MCP entry is skipped and the other agents still install', t => {
+  const { root, userDir, run } = sandbox(t);
+  for (const name of ['omp', 'opencode']) fs.writeFileSync(path.join(root, 'bin', name), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const file = path.join(userDir, '.omp', 'agent', 'mcp.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const commented = '{\n  // my comment\n  "mcpServers": {}\n}\n';
+  fs.writeFileSync(file, commented);
+  const out = run('setup', '--user', '--agents', 'omp,opencode');
+  assert.equal(fs.readFileSync(file, 'utf8'), commented);
+  assert.match(out, /omp: hook .*MCP not registered, .*is not a JSON object/);
+  assert.equal(fs.existsSync(path.join(userDir, '.config', 'opencode', 'plugins', 'trace-canvas.ts')), true);
+});

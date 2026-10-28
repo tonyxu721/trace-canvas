@@ -213,11 +213,12 @@ export function installOmp(cli, home = os.homedir(), repo = REPO) {
   const hook = linkTo(path.join(repo, 'integrations', 'omp', 'trace-canvas.ts'), path.join(home, '.omp', 'agent', 'hooks', 'pre', 'trace-canvas.ts'));
   const skill = linkTo(path.join(repo, 'skill'), path.join(home, '.omp', 'agent', 'skills', 'trace-canvas'));
   const file = path.join(home, '.omp', 'agent', 'mcp.json');
-  let cfg = {};
+  let cfg = {}, plain = true;
   if (fs.existsSync(file)) {
     const raw = fs.readFileSync(file, 'utf8');
-    cfg = raw.trim() ? JSON.parse(raw) : {};
     fs.writeFileSync(file + '.bak', raw);
+    if (raw.trim()) { try { cfg = JSON.parse(raw); } catch { plain = false; } }
+    if (!plain || !cfg || typeof cfg !== 'object' || Array.isArray(cfg)) return { hook, skill, mcp: `not registered, ${file} is not a JSON object; fix it and run setup again` };
   }
   cfg.mcpServers = { ...(cfg.mcpServers || {}), 'trace-canvas': { type: 'stdio', command: NODE, args: [cli, 'mcp'], env: { TRACE_CANVAS_AGENT: 'omp' } } };
   fs.mkdirSync(path.dirname(file), { recursive: true });
