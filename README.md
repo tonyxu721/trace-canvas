@@ -49,7 +49,7 @@ Four views of the same data:
 | View | What it shows |
 | --- | --- |
 | Canvas | One card per thread with a mini line map. Drag, zoom, draw labeled links, and select several threads to merge them. |
-| Branches | A git graph: every record in time order, one lane per thread, forks and merges as curves. |
+| Branches | A git graph: every record in time order, one lane per thread, forks and merges as curves. Click a line's chip to show only that line's records; click it again for all of them. |
 | Timeline | A time axis (day / week / month). One row per thread; the band shows when it was active. |
 | Agents | The running sessions as a tree: who started whom, and each session's subagents (see [Agent view](#agent-view-who-started-whom)). |
 
