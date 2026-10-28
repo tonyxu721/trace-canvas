@@ -184,24 +184,26 @@ Agents use the same list. At the start of work they read the goal and the open t
 
 *Agents tick to-dos off on the shared list, one by Claude Code and one by Codex, and the line's progress bar moves forward. Made-up data.*
 
-## Several agents on one machine: Claude Code, Codex, Gemini CLI
+## Several agents on one machine: Claude Code, Codex, Gemini CLI, omp, OpenCode
 
-Claude Code, Codex and Gemini CLI can share the canvas and split the work through to-dos:
+Claude Code, Codex, Gemini CLI, omp and OpenCode can share the canvas and split the work through to-dos:
 
 ```bash
-node bin/trace-canvas.mjs setup --user --agents codex,gemini
+node bin/trace-canvas.mjs setup --user --agents codex,gemini,omp,opencode
 ```
 
 This adds the hooks to `~/.codex/hooks.json` and `~/.gemini/settings.json` (after any hooks already there, with a backup) and registers the MCP server with each CLI. Codex runs hooks inside its `workspace-write` sandbox, which blocks writes outside the project, so setup also adds `~/.trace-canvas` to `writable_roots` under `[sandbox_workspace_write]` in `~/.codex/config.toml` (with a backup). Start Codex once afterwards and trust the new hooks when it asks. CLIs that are not installed are skipped.
+
+omp and OpenCode have no hook format of their own, so setup links a small adapter from `integrations/` (`~/.omp/agent/hooks/pre/trace-canvas.ts`, `~/.config/opencode/plugins/trace-canvas.ts`), links the skill into `~/.omp/agent/skills/trace-canvas` and `~/.config/opencode/skills/trace-canvas`, and registers the MCP server (`~/.omp/agent/mcp.json`, `opencode mcp add --global`). The adapters turn each prompt, tool call, settled turn and session start/end into the same events the Claude Code hooks send, in the background; where the CLI is found is written to `~/.trace-canvas/integrations.json`.
 
 For Codex, setup also links the skill into `~/.agents/skills/trace-canvas`. Invoke it with `$trace-canvas`, for example `$trace-canvas tasks`. To add just the skill to an existing installation, run `node bin/trace-canvas.mjs install-skill --user --agents codex`. With `--project <dir>`, that command installs it into `<dir>/.agents/skills/trace-canvas`. The skill stays linked to this clone, so pulling updates refreshes it too.
 
 - **Who does what:** each to-do in **Goals** has a "who does it" choice (Claude Code, Codex, Gemini CLI or anyone). Agents read their own with `trace_tasks` (`mine: true`) and tick them with `trace_task_done`, and the list shows who ticked each one.
 - **Hand it over:** **Hand to it** next to an assigned to-do copies a command, and so does `trace-canvas hand "<to-do>" --to codex`. The command starts that agent in the line's folder with `TRACE_CANVAS_THREAD` set, so the new session lands on the line. On macOS, **Open in Terminal** next to it runs the command in a new Terminal window. An agent can also take its next to-do by itself: `/trace-canvas pick` (`$trace-canvas pick` in Codex).
-- **A head start:** when any of the three starts a session, the hook tells it which line it works on, the line's goal, the to-dos assigned to it, who else is working there, and (with the location map) where things are on this machine.
-- Records, live tips and the Agent view show which agent did what. Each session gets its own resume command: `claude --resume`, `codex resume` or `gemini --resume`.
+- **A head start:** when Claude Code, Codex or Gemini CLI starts a session, the hook tells it which line it works on, the line's goal, the to-dos assigned to it, who else is working there, and (with the location map) where things are on this machine. omp and OpenCode get the same list from `trace_tasks`, which their skill tells them to call.
+- Records, live tips and the Agent view show which agent did what. Each session gets its own resume command: `claude --resume`, `codex resume`, `gemini --resume`, `omp --resume` or `opencode --session`.
 
-Codex has no notification event, so a permission request stands in for "needs you". Checked against real Codex 0.164 sessions (`test/fixtures/codex/`): prompts, shell commands, `apply_patch` edits, commits, permission requests, the context at session start and ticking a to-do over MCP. Gemini CLI support follows its documented hook events and will be checked against a current `@google/gemini-cli`.
+Codex has no notification event, so a permission request stands in for "needs you". Checked against real Codex 0.164 sessions (`test/fixtures/codex/`): prompts, shell commands, `apply_patch` edits, commits, permission requests, the context at session start and ticking a to-do over MCP. Gemini CLI support follows its documented hook events and will be checked against a current `@google/gemini-cli`. omp and OpenCode have no permission or subagent events, so their sessions show working and idle but never "needs you"; both were checked against real sessions: prompts, file edits, shell commands and commits, settled turns, session start and end.
 
 ## Several machines, one canvas
 
@@ -262,7 +264,7 @@ Set these in `~/.trace-canvas/config.json` or as environment variables:
 | --- | --- | --- | --- |
 | `lang` | `TRACE_CANVAS_LANG` | `en`, `zh`: language of records the hooks write | `en` (switching the page language also switches this) |
 | `group` | `TRACE_CANVAS_GROUP` | `branch`, `repo`, `session`: what one thread stands for | `branch` |
-| `prompts` | `TRACE_CANVAS_PROMPTS` | `first`, `long` (60+ characters), `all`, `none` | `first` |
+| `prompts` | `TRACE_CANVAS_PROMPTS` | `first` (the first instruction of each sitting; resuming a session starts a new one), `long` (60+ characters), `all`, `none` | `first` |
 | `turns` | `TRACE_CANVAS_TURNS` | `changes` (turns that changed something), `all`, `none` | `changes` |
 
 `TRACE_CANVAS_DISABLE=1` turns the hooks off for one session. `TRACE_CANVAS_HOME` moves the data folder. `TRACE_CANVAS_DEBUG=1` writes every hook event to `~/.trace-canvas/debug.log`.

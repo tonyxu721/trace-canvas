@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { addCommit, dataFile, ensureThread, home, importText, INBOX, mutate, readConfig, writeConfig } from '../src/store.mjs';
 import { execFileSync } from 'node:child_process';
 import { handleHook, readStdin } from '../src/hook.mjs';
-import { agentFiles, allowSafeTools, codexHooks, codexWritable, geminiHooks, hookCommand, install, installAgentMcp, installMcp, installSkill, onPath, settingsPath, uninstall } from '../src/install.mjs';
+import { agentFiles, allowSafeTools, codexHooks, codexWritable, geminiHooks, hookCommand, install, installAgentMcp, installMcp, installOmp, installOpencode, installSkill, onPath, settingsPath, uninstall, writeIntegrations } from '../src/install.mjs';
 import { normalize } from '../src/agents.mjs';
 import os from 'node:os';
 import crypto from 'node:crypto';
@@ -111,7 +111,8 @@ Live sessions
                                                    Write suggestion n: CLAUDE.md/AGENTS.md, the line, or long-term memory
 
 Setup (pass --user for every project, or --project dir for one)
-  trace-canvas setup            Hooks + MCP server + /trace-canvas skill
+  trace-canvas setup [--agents codex,gemini,omp,opencode]
+                               Hooks + MCP server + /trace-canvas skill, and the same for other CLIs
   trace-canvas install-hooks    Automatic traces from Claude Code sessions
   trace-canvas install-mcp      MCP tools: trace_capture_session, trace_merge, …
   trace-canvas install-skill [--agents codex]
@@ -424,10 +425,17 @@ async function main() {
         writeConfig({ machine });
         console.log(`4. This computer is "${machine}"${cfg.map ? `; the canvas syncs through ${cfg.map} with trace-canvas sync` : ''}`);
       }
-      // --agents claude,codex,gemini also wires the other CLIs (user scope only); missing ones are skipped.
-      const others = str(flag('agents', '')).split(',').map(x => x.trim()).filter(x => x === 'codex' || x === 'gemini');
+      // --agents claude,codex,gemini,omp,opencode also wires the other CLIs (user scope only); missing ones are skipped.
+      const others = str(flag('agents', '')).split(',').map(x => x.trim()).filter(x => ['codex', 'gemini', 'omp', 'opencode'].includes(x));
+      if (s.user && others.length) writeIntegrations(SELF);
       for (const a of s.user ? others : []) {
         if (!onPath(a)) { console.log(`   ${a}: not found on PATH, skipped${a === 'gemini' ? ' (install a current @google/gemini-cli, then run setup again)' : ''}`); continue; }
+        if (a === 'omp' || a === 'opencode') {
+          const r = a === 'omp' ? installOmp(SELF) : installOpencode(SELF);
+          const what = a === 'omp' ? 'hook' : 'plugin';
+          console.log(`   ${a}: ${what} ${r[a === 'omp' ? 'hook' : 'plugin']}; skill ${r.skill}; MCP ${r.mcp}`);
+          continue;
+        }
         const f = agentFiles(os.homedir())[a], cmd = hookCommand(SELF, a);
         install(f, cmd, a === 'codex' ? codexHooks(cmd) : geminiHooks(cmd));
         const r = installAgentMcp(a, SELF);

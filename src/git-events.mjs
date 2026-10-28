@@ -32,10 +32,15 @@ export function gitEvents(cmd, stdout = '', stderr = '', gitOperation = null) {
     // Newer Claude Code versions also report the commit as structured data, which survives `| tail` and quiet flags.
     const op = gitOperation && gitOperation.commit;
     if (!ev.commits.length && op && op.sha && (!op.kind || op.kind === 'committed')) ev.commits.push({ sha: String(op.sha), subject: commitMessage(cmd) || String(op.branch || '') });
-    // `git commit -q && git log --oneline -1` style output.
+    // `git commit -q && git log --oneline -1` style output, and rtk's one-liner (`ok <sha>`). Only the last
+    // line counts, and a bare sha only when `git log` ran after the commit: `git log --oneline -1 && git
+    // commit` prints an older commit that was never made.
     if (!ev.commits.length) {
-      const m = String(stdout || '').match(/^([0-9a-f]{7,40}) (.+)$/m);
-      if (m) ev.commits.push({ sha: m[1], subject: m[2] });
+      const last = String(stdout || '').trim().split('\n').pop() || '';
+      const hit = GIT_COMMIT.exec(cmd), after = hit ? cmd.slice(hit.index + hit[0].length) : '';
+      const ok = /^ok ([0-9a-f]{7,40})$/.exec(last);
+      const logged = !ok && /\bgit\b[^\n;&|]*\blog\b/.test(after) ? /^([0-9a-f]{7,40}) (.+)$/.exec(last) : null;
+      if (ok || logged) ev.commits.push({ sha: (ok || logged)[1], subject: logged ? logged[2] : commitMessage(cmd) || '' });
     }
   }
   if (/\bgit\b[^\n;&|]*\bpush\b/.test(cmd) && !/Everything up-to-date/.test(out)) {
