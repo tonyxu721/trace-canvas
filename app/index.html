@@ -897,7 +897,7 @@ const I18N = {
     justNow: 'just now', minAgo: n => `${n} min ago`, hAgo: n => `${n} h ago`, yesterday: 'yesterday', daysAgo: n => `${n} days ago`,
     edgeRelated: 'related', edgeFork: 'fork', edgeMerge: 'merge', labelChips: ['depends on', 'references', 'derived from', 'blocks', 'conflicts', 'same goal'],
     connectFrom: n => `From <b>${n}</b>: now pick a second thread`, connectPick: 'Pick the thread to start from',
-    legend: 'Lines', tlCorner: 'Threads', tlNowLabel: 'now',
+    legend: 'Lines', tlCorner: 'Threads', tlNowLabel: 'now', laneFilterTip: 'Show only this line; click it again for all of them',
     week: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
     months: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
     dayLabel: d => `${I18N.en.week[d.getDay()]} ${d.getMonth() + 1}/${d.getDate()}`,
@@ -1071,7 +1071,7 @@ kind can be agent, idea, task, decision or note. Use a short thread name and kee
     justNow: '刚刚', minAgo: n => `${n} 分钟前`, hAgo: n => `${n} 小时前`, yesterday: '昨天', daysAgo: n => `${n} 天前`,
     edgeRelated: '相关', edgeFork: '分叉', edgeMerge: '合并', labelChips: ['依赖', '参考', '衍生', '阻塞', '冲突', '同一目标'],
     connectFrom: n => `从「<b>${n}</b>」出发，再点一条线程完成连线`, connectPick: '点一条线程作为起点',
-    legend: '线路', tlCorner: '线程', tlNowLabel: '现在',
+    legend: '线路', tlCorner: '线程', tlNowLabel: '现在', laneFilterTip: '只看这条线路，再点一次看全部',
     week: ['日', '一', '二', '三', '四', '五', '六'],
     dayLabel: d => `${d.getMonth() + 1}/${d.getDate()} 周${I18N.zh.week[d.getDay()]}`,
     monthLabel: d => `${d.getFullYear()} 年 ${d.getMonth() + 1} 月`,
@@ -1220,7 +1220,7 @@ const COLS = ['threads', 'commits', 'edges'];
 
 const S = {
   threads: new Map(), commits: new Map(), edges: new Map(),
-  view: 'canvas', sel: null, ui: {}, q: '',
+  view: 'canvas', sel: null, ui: {}, q: '', gitLane: null,
   glDraft: {}, glEdit: null, // Goals page: half-typed to-dos per line; the to-do id (or goal:<line>) being edited
   hideDone: ls.get('tc.hideDone', false),
   cam: { x: 40, y: 40, z: 1 }, fitted: false,
@@ -2344,15 +2344,18 @@ function createThreadAndEdit() {
 
 /* ================= git graph ================= */
 function renderGit() {
+  // A chip filters the graph to its line: one lane, that line's records, until the chip is clicked again.
+  const inView = new Set(viewLines().map(th => th.id));
+  const only = S.gitLane && inView.has(S.gitLane) ? S.gitLane : null;
   const by = byThread();
-  const visible = new Set(viewLines().map(th => th.id));
+  const visible = only ? new Set([only]) : inView;
   const list = [...S.commits.values()].filter(c => visible.has(tidOf(c))).sort((a, b) => b.ts - a.ts);
   // Live tips: sessions working on a visible line right now take the top rows, above its newest record.
   const tips = S.live.filter(s => s.threadId && visible.has(s.threadId));
   const body = $('#git-body'), legend = $('#git-legend');
-  if (!list.length && !tips.length) { body.innerHTML = ''; legend.innerHTML = ''; return; }
+  if (!list.length && !tips.length && !only) { body.innerHTML = ''; legend.innerHTML = ''; return; }
   const tipLines = new Set(tips.map(s => s.threadId));
-  const laneOrder = [INBOX, ...orderedThreads().map(th => th.id)].filter(id => visible.has(id) && (by.has(id) || tipLines.has(id)));
+  const laneOrder = only ? [only] : [INBOX, ...orderedThreads().map(th => th.id)].filter(id => visible.has(id) && (by.has(id) || tipLines.has(id)));
   const lane = new Map(laneOrder.map((id, i) => [id, i]));
   const row = new Map(list.map((c, i) => [c.id, i + tips.length]));
   // A phone keeps the graph to about two fifths of the screen so the titles stay readable, and gives each
@@ -2361,11 +2364,11 @@ function renderGit() {
   const LW = phone ? Math.max(7, Math.min(20, Math.floor((innerWidth * 0.4 - 2 * PADX) / Math.max(1, laneOrder.length - 1)))) : 20;
   const lx = i => PADX + i * LW, ry = i => i * ROW + ROW / 2;
   const gw = PADX * 2 + Math.max(0, laneOrder.length - 1) * LW;
-  const selT = selThreadId();
+  const selT = only;
   const selC = S.sel && S.sel.type === 'commit' ? S.sel.id : null;
   legend.innerHTML = `<span class="legend-label">${esc(t('legend'))}</span>` + laneOrder.map(id => {
     const th = getThread(id);
-    return `<button class="lane-chip ${selT === id ? 'is-sel' : ''}" data-tid="${esc(id)}" style="--c:${th.color}"><i></i>${esc(th.name)}<span class="mono" style="color:var(--faint);font-size:11px">${(by.get(id) || []).length}</span></button>`;
+    return `<button class="lane-chip ${selT === id ? 'is-sel' : ''}" data-tid="${esc(id)}" aria-pressed="${selT === id}" title="${esc(t('laneFilterTip'))}" style="--c:${th.color}"><i></i>${esc(th.name)}<span class="mono" style="color:var(--faint);font-size:11px">${(by.get(id) || []).length}</span></button>`;
   }).join('') + `<span class="legend-actors">${ACTOR_ICON.human ? `<span class="actor a-human">${ACTOR_ICON.human}</span>${esc(t('actorHuman'))}` : ''}<span class="actor a-agent" style="margin-left:8px">${ACTOR_ICON.agent}</span>${esc(t('actorAgent'))}</span>`;
   let svg = '';
   for (const id of laneOrder) {
@@ -2430,13 +2433,15 @@ function renderGit() {
       <span class="g-time">${fmtAbs(c.ts)}</span><span class="g-ago">${fmtShort(c.ts)}</span>
     </div>`;
   }).join('');
-  body.innerHTML = `<svg class="git-svg" width="${gw}" height="${(list.length + tips.length) * ROW}" style="left:max(4px, env(safe-area-inset-left, 0px))">${svg}</svg>${rows}`;
+  body.innerHTML = list.length || tips.length
+    ? `<svg class="git-svg" width="${gw}" height="${(list.length + tips.length) * ROW}" style="left:max(4px, env(safe-area-inset-left, 0px))">${svg}</svg>${rows}`
+    : `<div class="ag-empty">${esc(t('noRecords'))}</div>`;
 }
 $('#git-scroll').addEventListener('click', e => {
   const tip = e.target.closest('[data-sid]');
   if (tip) { select({ type: 'live', id: tip.dataset.sid }); return; }
   const chip = e.target.closest('[data-tid]');
-  if (chip) { select({ type: 'thread', id: chip.dataset.tid }); return; }
+  if (chip) { S.gitLane = S.gitLane === chip.dataset.tid ? null : chip.dataset.tid; renderGit(); return; }
   const r = e.target.closest('[data-cid]');
   if (r) select({ type: 'commit', id: r.dataset.cid });
 });
